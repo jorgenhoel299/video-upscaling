@@ -3,7 +3,9 @@ from pyspark.sql.functions import col
 import logging
 import subprocess
 import json
-
+import cv2
+import os
+import numpy as np
 
 logging.getLogger("org").setLevel("ERROR")
 logging.getLogger("akka").setLevel("ERROR")
@@ -56,13 +58,71 @@ def get_video_metadata(file_path):
     return json.loads(result.stdout)
 
 # Example usage:
-example_video_name = video_df.select("path").collect()[42].path[5:]
-print("Path off example video: {0}".format(example_video_name))
-metadata = get_video_metadata(example_video_name)
+example_video_path = video_df.select("path").collect()[42].path[5:]
+print("Path off example video: {0}".format(example_video_path))
+metadata = get_video_metadata(example_video_path)
 print("Metadata of example video")
 print(metadata)
 print('______________________________')
 
+# VIsual content detection
+net = cv2.dnn.readNet("/opt/spark/src/yolov3.weights", "/opt/spark/src/yolov3.cfg")
+output_dir = "/opt/spark/outputs"
+os.makedirs(output_dir, exist_ok=True)
 
+# Load YOLO model
+net = cv2.dnn.readNet("/opt/spark/src/yolov3.weights", "/opt/spark/src/yolov3.cfg")
+
+# Initialize video capture from the video file
+video_capture = cv2.VideoCapture(example_video_path)
+
+# Get video dimensions
+width = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+def detect_objects(frame, frame_id):
+    blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
+    net.setInput(blob)
+    layer_outputs = net.forward(net.getUnconnectedOutLayersNames())
+
+    detections = []
+    for output in layer_outputs:
+        for detection in output:
+            scores = detection[5:]  # Assuming first 5 are x, y, w, h, confidence
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5:  # Confidence threshold
+                # Calculate bounding box coordinates
+                box = detection[0:4] * np.array([width, height, width, height])
+                (centerX, centerY, w, h) = box.astype("int")
+                x1 = int(centerX - (w / 2))
+                y1 = int(centerY - (h / 2))
+                detections.append({"box": (x1, y1, x1 + w, y1 + h), "class_id": class_id, "confidence": confidence})
+
+                # Save the frame with detections
+                detected_frame_path = os.path.join(output_dir, f"detected_frame_{frame_id}.jpg")
+                cv2.imwrite(detected_frame_path, frame)
+    
+    return detections
+
+frame_id = 0
+while True:
+    # Read frame from video source
+    ret, frame = video_capture.read()
+    if not ret:
+        break
+    if frame_id == 10:
+        break #change to see more frames
+    # Process frame
+    detections = detect_objects(frame, frame_id)
+    
+    # Increment frame ID
+    frame_id += 1
+
+# Release video capture when done
+video_capture.release()
+
+# Print summary of detections (optional)
+print(f"Processed {frame_id} frames and saved detected frames in {output_dir}.")
 # Stop the Spark session when done
 spark.stop()

@@ -4,6 +4,7 @@ FROM ubuntu:20.04
 # Install necessary packages
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-11-jdk curl ffmpeg python3 python3-pip && \
+    pip3 install opencv-python && \
     apt-get clean
 
 # Set environment variables for Spark
