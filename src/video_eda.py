@@ -67,7 +67,7 @@ print('______________________________')
 
 # VIsual content detection
 net = cv2.dnn.readNet("/opt/spark/src/yolov3.weights", "/opt/spark/src/yolov3.cfg")
-output_dir = "/opt/spark/outputs"
+output_dir = "/opt/spark/src/outputs"
 os.makedirs(output_dir, exist_ok=True)
 
 # Load YOLO model
@@ -84,7 +84,7 @@ def detect_objects(frame, frame_id):
     blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
     net.setInput(blob)
     layer_outputs = net.forward(net.getUnconnectedOutLayersNames())
-
+    print("Layer Outputs:", layer_outputs)
     detections = []
     for output in layer_outputs:
         for detection in output:
@@ -98,10 +98,14 @@ def detect_objects(frame, frame_id):
                 x1 = int(centerX - (w / 2))
                 y1 = int(centerY - (h / 2))
                 detections.append({"box": (x1, y1, x1 + w, y1 + h), "class_id": class_id, "confidence": confidence})
-
+                frame_copy = frame.copy()
+                
                 # Save the frame with detections
                 detected_frame_path = os.path.join(output_dir, f"detected_frame_{frame_id}.jpg")
-                cv2.imwrite(detected_frame_path, frame)
+                frame_copy = frame.copy()
+                cv2.rectangle(frame_copy, (x1, y1), (x1 + w, y1 + h), (0, 255, 0), 2)
+                cv2.imwrite(detected_frame_path, frame_copy)
+                # cv2.imwrite(detected_frame_path, frame)
     
     return detections
 

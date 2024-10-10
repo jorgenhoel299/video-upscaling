@@ -1,3 +1,4 @@
 /data/
 /src/yolov3.cfg
 /src/yolov3.weights
+/src/outputs/
