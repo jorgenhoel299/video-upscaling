@@ -6,6 +6,8 @@ import json
 import cv2
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 logging.getLogger("org").setLevel("ERROR")
 logging.getLogger("akka").setLevel("ERROR")
@@ -84,7 +86,6 @@ def detect_objects(frame, frame_id):
     blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
     net.setInput(blob)
     layer_outputs = net.forward(net.getUnconnectedOutLayersNames())
-    print("Layer Outputs:", layer_outputs)
     detections = []
     for output in layer_outputs:
         for detection in output:
@@ -128,5 +129,20 @@ video_capture.release()
 
 # Print summary of detections (optional)
 print(f"Processed {frame_id} frames and saved detected frames in {output_dir}.")
+
+# Some plt plots
+video_lengths = video_df.select('length').rdd.flatMap(lambda x: x).collect()
+
+# Plotting histogram of video lengths
+plt.figure(figsize=(10, 6))
+plt.hist(video_lengths, bins=30, color='blue', alpha=0.7)
+plt.title('Distribution of Video Lengths')
+plt.xlabel('Length (in seconds)')
+plt.ylabel('Number of Videos')
+plt.grid()
+
+plt.savefig(output_dir + '/video_length_distribution.png')  
+plt.close()  # Close the plot to free memory
+
 # Stop the Spark session when done
 spark.stop()
