@@ -20,7 +20,9 @@ RUN git clone https://github.com/edenhill/librdkafka.git && \
     rm -rf librdkafka
 
 # Install Python libraries separately
-RUN pip3 install opencv-python matplotlib confluent-kafka
+RUN apt-get update && apt-get install -y \
+    python3-opencv libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/
 
 # Print environment variables to verify installation
 RUN echo "SPARK_HOME: ${SPARK_HOME}" && \
@@ -44,4 +46,12 @@ COPY src /opt/spark/src
 COPY data/Normal_Videos_for_Event_Recognition /opt/spark/video_dataset
 
 # Default command
-CMD ["bash"]
+CMD ["sh", "-c", " \
+  if [ \"$SPARK_MODE\" = \"master\" ]; then \
+    $SPARK_HOME/sbin/start-master.sh && tail -f /dev/null; \
+  elif [ \"$SPARK_MODE\" = \"worker\" ]; then \
+    $SPARK_HOME/sbin/start-worker.sh $SPARK_MASTER_URL && tail -f /dev/null; \
+  else \
+    echo 'Invalid SPARK_MODE. Use master or worker.' && exit 1; \
+  fi \
+"]
