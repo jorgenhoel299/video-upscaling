@@ -43,7 +43,7 @@ ENV PATH=$PATH:${SPARK_HOME}/bin
 
 # Copy your application code
 COPY src /opt/spark/src
-COPY data/Normal_Videos_for_Event_Recognition /opt/spark/video_dataset
+#COPY data/Normal_Videos_for_Event_Recognition /opt/spark/video_dataset
 
 # Default command
 CMD ["sh", "-c", " \

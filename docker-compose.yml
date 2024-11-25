@@ -22,8 +22,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE  # Added this line
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
-      - ./data/Normal_Videos_for_Event_Recognition/testing:/opt/spark/data/testing:/opt/spark/data/testing
-      
+      - ./data/Normal_Videos_for_Event_Recognition/testing:/opt/spark/data/testing
 
   spark-master:
     image: video-upscaling-image  # Use your custom Spark image
@@ -34,7 +33,7 @@ services:
       - "7077:7077"
     volumes:
       - ./data/Normal_Videos_for_Event_Recognition/training/master_videos:/opt/spark/data/training
-
+      
   spark-worker-1:
     image: video-upscaling-image  # Use your custom Spark image
     environment:
