@@ -24,6 +24,13 @@ RUN apt-get update && apt-get install -y \
     python3-opencv libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/
 
+RUN pip3 install --no-cache-dir \
+    torch \
+    numpy \
+    pyspark \
+    Pillow \
+    torchvision
+
 # Print environment variables to verify installation
 RUN echo "SPARK_HOME: ${SPARK_HOME}" && \
     echo "PATH: ${PATH}"
