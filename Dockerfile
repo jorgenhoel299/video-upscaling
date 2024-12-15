@@ -19,10 +19,15 @@ RUN git clone https://github.com/edenhill/librdkafka.git && \
     cd .. && \
     rm -rf librdkafka
 
-# Install Python libraries separately
+# Install Python libraries including pandas and OpenCV
 RUN apt-get update && apt-get install -y \
-    python3-opencv libgl1 libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/
+    python3-opencv libgl1 libglib2.0-0 && \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install pandas && \
+    rm -rf /var/lib/apt/lists/
+
+# Install PyTorch and torchvision (CUDA support if needed)
+RUN python3 -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Print environment variables to verify installation
 RUN echo "SPARK_HOME: ${SPARK_HOME}" && \
@@ -43,7 +48,6 @@ ENV PATH=$PATH:${SPARK_HOME}/bin
 
 # Copy your application code
 COPY src /opt/spark/src
-#COPY data/Normal_Videos_for_Event_Recognition /opt/spark/video_dataset
 
 # Default command
 CMD ["sh", "-c", " \
