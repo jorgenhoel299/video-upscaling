@@ -7,6 +7,7 @@ from torchvision import transforms
 from PIL import Image
 from pyspark.sql import SparkSession
 from pyspark.context import SparkContext
+from pyspark.rdd import RDD
 
 # Set device to GPU if available, else CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,7 +38,7 @@ class SuperResolutionDataset(Dataset):
         return lowres_img, highres_img
 
 
-# Define SRGAN Model (simplified for example purposes)
+# Define SRGAN Model
 class SRGAN(nn.Module):
     def __init__(self):
         super(SRGAN, self).__init__()
@@ -72,63 +73,53 @@ def train_model(data_loader, model, criterion, optimizer, epochs=5):
     return model
 
 
-# Master processing function
-def process_master_data(master_pairs):
-    print(f"Master processing {len(master_pairs)} pairs of directories...")
-    model_paths = []
-    for highres_dir, lowres_dir in master_pairs:
-        print(f"Master processing pair: High-res: {highres_dir}, Low-res: {lowres_dir}")
-
-        if not os.path.exists(highres_dir) or not os.path.exists(lowres_dir):
-            print(f"Directories not found: High-res: {highres_dir}, Low-res: {lowres_dir}")
-            continue
-
-        transform = transforms.Compose([
-            transforms.Resize((128, 128)),
-            transforms.ToTensor()
-        ])
-
-        dataset = SuperResolutionDataset(highres_dir, lowres_dir, transform)
-        print(f"Dataset size for High-res: {highres_dir}: {len(dataset)}")
-
-        if len(dataset) == 0:
-            print(f"No data found in: High-res: {highres_dir}, Low-res: {lowres_dir}")
-            continue
-
-        data_loader = DataLoader(dataset, batch_size=16, shuffle=True)
-        model = SRGAN().to(device)
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-        try:
-            trained_model = train_model(data_loader, model, criterion, optimizer, epochs=5)
-        except Exception as e:
-            print(f"Training failed for High-res: {highres_dir}, Low-res: {lowres_dir}. Error: {e}")
-            continue
-
-        # Ensure model directory exists
-        model_dir = "/opt/spark/models/"
-        os.makedirs(model_dir, exist_ok=True)
-
-        local_model_path = f"{model_dir}/model_{os.path.basename(highres_dir)}.pth"
-        try:
-            torch.save(trained_model.state_dict(), local_model_path)
-            print(f"Master saved model: {local_model_path}")
-            model_paths.append(local_model_path)
-        except Exception as e:
-            print(f"Failed to save model for High-res: {highres_dir}. Error: {e}")
-
-    return model_paths
-
-
-# Worker processing function
-def distributed_training(partition_data):
+def distributed_training(data_dirs):
     """
-    Worker processes its partition of data.
+    Train an SRGAN model on the local data available on a worker node.
     """
-    pairs = list(partition_data)
-    print(f"Worker processing {len(pairs)} pairs")
-    return process_master_data(pairs)  # Reuse the logic for master but applied on worker-specific data.
+    highres_dir, lowres_dir = data_dirs
+
+    print(f"Worker processing: High-res: {highres_dir}, Low-res: {lowres_dir}")
+
+    if not os.path.exists(highres_dir) or not os.path.exists(lowres_dir):
+        print(f"Directories not found: {highres_dir}, {lowres_dir}")
+        return []
+
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+
+    dataset = SuperResolutionDataset(highres_dir, lowres_dir, transform)
+    if len(dataset) == 0:
+        print(f"No data found in: High-res: {highres_dir}, Low-res: {lowres_dir}")
+        return []
+
+    print(f"Dataset size: {len(dataset)}")
+
+    data_loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    model = SRGAN().to(device)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    trained_model = train_model(data_loader, model, criterion, optimizer, epochs=5)
+
+    local_model_path = f"/opt/spark/models/model_{os.path.basename(highres_dir)}.pth"
+    torch.save(trained_model.state_dict(), local_model_path)
+    print(f"Model saved at: {local_model_path}")
+
+    return [local_model_path] if os.path.exists(local_model_path) else []
+
+
+def discover_local_datasets(base_path="/opt/spark/data/training/frames/"):
+    """
+    Discover datasets available on this container (master or worker).
+    """
+    video_dirs = [os.path.join(base_path, d) for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
+    highres_dirs = [d for d in video_dirs if not d.endswith("_lowres")]
+    lowres_dirs = [f"{d}_lowres" for d in highres_dirs if os.path.exists(f"{d}_lowres")]
+
+    pairs = [(highres, lowres) for highres, lowres in zip(highres_dirs, lowres_dirs)]
+    return pairs
 
 
 def main():
@@ -136,28 +127,23 @@ def main():
     spark = SparkSession.builder.appName("DistributedSRGANTraining").getOrCreate()
     sc = SparkContext.getOrCreate()
 
-    # List all video directories and corresponding low-resolution directories
-    base_dir = "/opt/spark/data/training/frames/"
-    video_dirs = [os.path.join(base_dir, d) for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
-    highres_dirs = [d for d in video_dirs if not d.endswith("_lowres")]
-    lowres_dirs = [f"{d}_lowres" for d in highres_dirs]
+    # Run discovery on local datasets (master + workers)
+    print("Discovering datasets on local containers...")
+    local_datasets = sc.parallelize([None], 1).mapPartitions(lambda _: discover_local_datasets()).collect()
 
-    # Ensure all low-res directories exist
-    pairs = [(highres, lowres) for highres, lowres in zip(highres_dirs, lowres_dirs) if os.path.exists(lowres)]
+    # Flatten list of discovered datasets
+    datasets = [pair for sublist in local_datasets for pair in sublist]
+    print(f"Discovered datasets: {datasets}")
 
-    # Split data into master-local and worker-local partitions
-    master_pairs = [pair for pair in pairs if os.path.exists(pair[0])]  # Filter master-local paths
-    worker_pairs = [pair for pair in pairs if pair not in master_pairs]  # Remaining pairs for workers
+    if not datasets:
+        print("No datasets found. Exiting...")
+        spark.stop()
+        return
 
-    # Process master's local data
-    master_model_paths = process_master_data(master_pairs)
+    # Distribute the discovered datasets for training
+    model_paths = sc.parallelize(datasets, len(datasets)).map(distributed_training).collect()
 
-    # Parallelize video directories across all workers
-    worker_model_paths = sc.parallelize(worker_pairs, len(worker_pairs)).mapPartitions(distributed_training).collect()
-
-    # Combine all intermediate model paths
-    all_model_paths = master_model_paths + [path for sublist in worker_model_paths for path in sublist]
-    print(f"Intermediate models saved: {all_model_paths}")
+    print(f"Intermediate models saved: {model_paths}")
 
     # Stop Spark
     spark.stop()
