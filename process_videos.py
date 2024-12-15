@@ -39,19 +39,29 @@ def extract_frames(video_path):
     if not cap.isOpened():
         return f"Failed to open video: {video_path}"
 
+    # Get video resolution and frame count
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    print(f"Processing video: {video_path}")
+    print(f"Resolution: {frame_width}x{frame_height}, Total Frames: {total_frames}, FPS: {fps}")
+
     count = 0
     success, frame = cap.read()
     while success:
         if frame is None:
             break
 
+        # Save each frame without altering resolution
         frame_path = os.path.join(output_dir, f"frame_{count:04d}.jpg")
         cv2.imwrite(frame_path, frame)
         count += 1
         success, frame = cap.read()
 
     cap.release()
-    return f"Processed {count} frames from {video_path}"
+    return f"Processed {count}/{total_frames} frames from {video_path}"
 
 def process_local_videos():
     """
